@@ -483,7 +483,7 @@ elif selected_tab == "Heritability Estimates":
     h2_cohort = st.radio(
         "Select Population Cohort:", 
         ["DO-F1 Progeny", "F1 Founder Crosses"], 
-        inline=True
+        horizontal=True
     )
     
     active_h2_df = h2_data if h2_cohort == "DO-F1 Progeny" else h2_pro_data
@@ -633,7 +633,7 @@ elif selected_tab == "QTL Mapping & Allele Effects":
     with col_ctrl1:
         qtl_feature = st.selectbox("Select Target Feature:", available_features, key="qtl_feat_select")
     with col_ctrl2:
-        qtl_model = st.radio("Genetic Model Type:", ["Female Only", "Male Only", "Additive model (Combined)"], inline=True)
+        qtl_model = st.radio("Genetic Model Type:", ["Female Only", "Male Only", "Additive model (Combined)"], horizontal=True)
         
     st.markdown("---")
     st.subheader("1. Genome-wide LOD Score Scan")
