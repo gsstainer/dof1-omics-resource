@@ -4,7 +4,15 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from scipy import stats
+
+# --- TRY STATSMODELS IMPORT FOR PLOTLY TRENDLINES ---
+# Statsmodels is required for px.scatter(trendline="ols"). 
+# If it fails to load or install on Streamlit Cloud, we will fall back gracefully without trendlines.
+HAS_STATSMODELS = True
+try:
+    import statsmodels.api as sm
+except ImportError:
+    HAS_STATSMODELS = False
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -14,12 +22,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS FOR PREMIUM RICH AESTHETICS (Inter font, dark mode cards, clean borders) ---
+# --- CSS FOR PREMIUM RICH AESTHETICS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Core Typography & Background styling override */
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
     }
@@ -29,7 +36,6 @@ st.markdown("""
         letter-spacing: -0.5px;
     }
     
-    /* Custom Card Style for KPIs */
     .kpi-card {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155;
@@ -59,8 +65,6 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
-    
-    /* Subtle decorative accent line for cards */
     .accent-bar {
         height: 4px;
         width: 50px;
@@ -72,13 +76,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- PASSWORD PROTECTION FUNCTION ---
+# --- PASSWORD PROTECTION ---
 def check_password():
     """Returns True if the user has logged in successfully, False otherwise."""
     if st.session_state.get("password_correct", False):
         return True
 
-    # Render a centered, styled login box
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -93,7 +96,6 @@ def check_password():
         </div>
         """, unsafe_allow_html=True)
         
-        # Password Input Field
         password = st.text_input(
             "Enter Password", 
             type="password", 
@@ -102,7 +104,6 @@ def check_password():
             placeholder="🔒 Enter access password..."
         )
         
-        # Verify Password trigger
         if st.button("Unlock Dashboard 🚀", use_container_width=True):
             if password == "dof1_omics":
                 st.session_state["password_correct"] = True
@@ -110,7 +111,6 @@ def check_password():
             else:
                 st.error("😕 Incorrect password. Please try again.")
         
-        # Automatically login if user hits enter
         if password:
             if password == "dof1_omics":
                 st.session_state["password_correct"] = True
@@ -124,7 +124,7 @@ def check_password():
 # --- RUN PASSWORD GUARD ---
 if check_password():
 
-    # --- DATA PATH FINDER (Looks in local data/ or inside DOF1_Microbe/data/) ---
+    # --- DATA PATH FINDER ---
     def find_data_file(filename):
         paths_to_try = [
             os.path.join(".", "data", filename),
@@ -147,7 +147,6 @@ if check_password():
             for ch in chroms:
                 length = 120 if ch != 'X' else 80
                 positions = np.sort(np.random.uniform(0, length, 15))
-                # Create a mock peak on chr 4 for some features to make scans realistic
                 peak_chr = '4' if hash(feat) % 3 == 0 else '11'
                 for pos in positions:
                     base_lod = np.random.exponential(1.2)
@@ -171,29 +170,36 @@ if check_password():
         data = []
         np.random.seed(100)
         for feat in features:
-            # Generate peak location
             ch = '4' if hash(feat) % 3 == 0 else '11'
             length = 120 if ch != 'X' else 80
             positions = np.sort(np.random.uniform(0, length, 40))
             for pos in positions:
                 row = {"Chr": ch, "Position_cM": round(pos, 3), "Feature": feat}
-                # Generate BLUP coefficients that sum near 0
                 effects = np.random.normal(0, 0.2, len(founders))
-                # Enhance peak allele divergence
                 if abs(pos - (length / 2)) < 15:
-                    effects[0] += np.random.uniform(0.5, 1.2)  # Allele A goes up
-                    effects[1] -= np.random.uniform(0.5, 1.2)  # Allele B goes down
-                effects = effects - np.mean(effects)  # center them
+                    effects[0] += np.random.uniform(0.5, 1.2)
+                    effects[1] -= np.random.uniform(0.5, 1.2)
+                effects = effects - np.mean(effects)
                 for idx, f in enumerate(founders):
                     row[f] = round(effects[idx], 4)
                 data.append(row)
         return pd.DataFrame(data)
 
 
+    # --- SAFE CSV LOADER WITH GRACEFUL EXCEPTION HANDLING ---
+    def safe_read_csv(filepath):
+        if not filepath or not os.path.exists(filepath):
+            return None
+        try:
+            return pd.read_csv(filepath)
+        except Exception as e:
+            st.sidebar.error(f"Error loading {os.path.basename(filepath)}: {e}")
+            return None
+
+
     # --- DATA LOADING HELPER ---
     @st.cache_data
     def load_app_data(omics_mode):
-        # Determine files names based on active Omics
         is_microbe = (omics_mode == "Microbiome")
         
         meta_path = find_data_file("metadata.csv")
@@ -202,10 +208,8 @@ if check_password():
         h2_pro_path = find_data_file("h2_DOProF1.csv" if is_microbe else "h2_DOProF1_metabolomics.csv")
         
         # 1. Load Metadata
-        if meta_path:
-            metadata = pd.read_csv(meta_path)
-        else:
-            # Create synthetic metadata
+        metadata = safe_read_csv(meta_path)
+        if metadata is None or metadata.empty:
             np.random.seed(42)
             n_samples = 350
             metadata = pd.DataFrame({
@@ -215,16 +219,22 @@ if check_password():
                 "lesionArea": np.random.lognormal(2.5, 0.8, n_samples),
                 "folChol": np.random.normal(120, 25, n_samples)
             })
-            # Add mock features
             features = [f"Genus_{i}" if is_microbe else f"Metabolite_{i}" for i in range(1, 21)]
             for f in features:
                 metadata[f] = np.random.lognormal(1.5, 1.2, n_samples)
                 
+        # Get active features list from metadata
+        features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
+        if not features:
+            features = [f"Genus_{i}" if is_microbe else f"Metabolite_{i}" for i in range(1, 21)]
+            for f in features:
+                metadata[f] = np.random.lognormal(1.5, 1.2, len(metadata))
+
         # 2. Load LMM
-        if lmm_path:
-            lmm_data = pd.read_csv(lmm_path)
-        else:
-            features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
+        lmm_data = safe_read_csv(lmm_path)
+        feature_col_name = "Microbial_Feature" if is_microbe else "Metabolite_Feature"
+        
+        if lmm_data is None or lmm_data.empty or feature_col_name not in lmm_data.columns:
             traits = ["lesionArea", "folChol"]
             rows = []
             np.random.seed(42)
@@ -234,7 +244,7 @@ if check_password():
                     pval = np.random.uniform(0.0001, 0.8)
                     rows.append({
                         "Trait": trait,
-                        "Microbial_Feature" if is_microbe else "Metabolite_Feature": feat,
+                        feature_col_name: feat,
                         "Estimate": round(est, 4),
                         "CI_Low": round(est - 0.15, 4),
                         "CI_High": round(est + 0.15, 4),
@@ -245,42 +255,36 @@ if check_password():
             lmm_data = pd.DataFrame(rows)
 
         # 3. Load Heritability
-        if h2_path:
-            h2_data = pd.read_csv(h2_path)
-        else:
-            features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
+        h2_data = safe_read_csv(h2_path)
+        if h2_data is None or h2_data.empty:
             h2_data = pd.DataFrame({
                 "Trait": features,
                 "Heritability": np.sort(np.random.uniform(5, 55, len(features)))
             })
             
-        if h2_pro_path:
-            h2_pro_data = pd.read_csv(h2_pro_path)
-        else:
-            features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
+        h2_pro_data = safe_read_csv(h2_pro_path)
+        if h2_pro_data is None or h2_pro_data.empty:
             h2_pro_data = pd.DataFrame({
                 "Trait": features,
                 "Heritability": np.sort(np.random.uniform(2, 40, len(features)))
             })
 
-        # Standardize column headers for heritability datasets
+        # Standardize column headers to prevent IndexErrors
         for df in [h2_data, h2_pro_data]:
-            if len(df.columns) >= 2:
+            if df is not None and len(df.columns) >= 2:
                 df.columns = ["Trait", "Heritability"] + list(df.columns[2:])
 
         # 4. Load QTL LOD scores & Allele Effects
-        features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
-        
         lod_path = find_data_file("qtl_lod_scores.csv")
-        if lod_path:
-            lod_data = pd.read_csv(lod_path)
+        lod_data = safe_read_csv(lod_path)
+        if lod_data is not None and not lod_data.empty and "Feature" in lod_data.columns:
             lod_data = lod_data[lod_data["Feature"].isin(features)]
         else:
             lod_data = generate_mock_lod_scores(features)
             
         coef_path = find_data_file("qtl_allele_effects.csv")
-        if coef_path:
-            coef_data = pd.read_csv(coef_path)
+        coef_data = safe_read_csv(coef_path)
+        if coef_data is not None and not coef_data.empty and "Feature" in coef_data.columns:
             coef_data = coef_data[coef_data["Feature"].isin(features)]
         else:
             coef_data = generate_mock_allele_effects(features)
@@ -288,23 +292,16 @@ if check_password():
         return metadata, lmm_data, h2_data, h2_pro_data, lod_data, coef_data
 
 
-    # --- APP HEADER & SIDEBAR NAVIGATION ---
-    st.title("🧬 DO-F1 Multi-Omics Systems Genetics Resource")
-    st.caption("Dissecting Gene-Microbiome & Metabolome Interactions in Cardiometabolic Traits")
-    st.markdown("---")
-
-    # Global Sidebar
+    # --- APP NAVIGATION ---
     st.sidebar.image("https://img.icons8.com/color/96/dna-helix.png", width=60)
     st.sidebar.header("Platform Navigation")
 
-    # Omics Selection Toggle
     omics_mode = st.sidebar.selectbox(
         "Select Omics Layer:",
         ["Microbiome", "Metabolomics"],
         index=0
     )
 
-    # Tab Selection
     nav_options = [
         "About & Overview",
         "Cohort Analysis (Microbiome Only)",
@@ -315,63 +312,46 @@ if check_password():
     selected_tab = st.sidebar.radio("Go to:", nav_options)
     
     st.sidebar.markdown("---")
-    # Logout action
     if st.sidebar.button("🔒 Logout Portal"):
         st.session_state["password_correct"] = False
         st.rerun()
 
-    # Load data dynamically
+    # Load data safely
     metadata, lmm_data, h2_data, h2_pro_data, lod_data, coef_data = load_app_data(omics_mode)
     feature_col_name = "Microbial_Feature" if omics_mode == "Microbiome" else "Metabolite_Feature"
-    available_features = sorted(lmm_data[feature_col_name].unique())
+    
+    # Highly robust feature names parser
+    available_features = []
+    if lmm_data is not None and not lmm_data.empty and feature_col_name in lmm_data.columns:
+        available_features = sorted([str(x) for x in lmm_data[feature_col_name].dropna().unique()])
+    if not available_features:
+        available_features = ["No Features Available"]
+
 
     # --- TAB 1: ABOUT & OVERVIEW ---
     if selected_tab == "About & Overview":
         st.header("📋 Project About & Quick Dashboard")
         
-        # Render value boxes using Custom HTML/CSS
-        n_total = len(metadata)
-        n_female = len(metadata[metadata["Sex"] == "F"])
-        n_male = len(metadata[metadata["Sex"] == "M"])
-        n_features_with_qtl = len(lod_data[lod_data["LOD"] >= 7.25]["Feature"].unique())
+        # Calculate values defensively
+        n_total = len(metadata) if metadata is not None else 0
+        n_female = len(metadata[metadata["Sex"] == "F"]) if metadata is not None and "Sex" in metadata.columns else 0
+        n_male = len(metadata[metadata["Sex"] == "M"]) if metadata is not None and "Sex" in metadata.columns else 0
+        n_features_with_qtl = 0
+        if lod_data is not None and not lod_data.empty and "LOD" in lod_data.columns and "Feature" in lod_data.columns:
+            n_features_with_qtl = len(lod_data[lod_data["LOD"] >= 7.25]["Feature"].unique())
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Total Mice Profiling</div>
-                <div class="kpi-value">{n_total}</div>
-                <div class="accent-bar"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Total Mice Profiling</div><div class="kpi-value">{n_total}</div><div class="accent-bar"></div></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Female Cohort (F)</div>
-                <div class="kpi-value">{n_female}</div>
-                <div class="accent-bar"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Female Cohort (F)</div><div class="kpi-value">{n_female}</div><div class="accent-bar"></div></div>', unsafe_allow_html=True)
         with col3:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Male Cohort (M)</div>
-                <div class="kpi-value">{n_male}</div>
-                <div class="accent-bar"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Male Cohort (M)</div><div class="kpi-value">{n_male}</div><div class="accent-bar"></div></div>', unsafe_allow_html=True)
         with col4:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Significant QTL Features</div>
-                <div class="kpi-value">{n_features_with_qtl}</div>
-                <div class="accent-bar"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Significant QTL Features</div><div class="kpi-value">{n_features_with_qtl}</div><div class="accent-bar"></div></div>', unsafe_allow_html=True)
             
         st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Description Box
         st.subheader("Welcome to the Interactive Resource App")
         st.markdown(f"""
         This application serves as an interactive systems genetics portal to explore molecular and phenotypic traits 
@@ -385,7 +365,6 @@ if check_password():
         * **Raw Data Access**: Raw metagenomic/metabolomic sequences are hosted at NCBl BioProject/SRA under ID **PRJNA686143**.
         """)
         
-        # Contact Info cards
         c1, c2 = st.columns(2)
         with c1:
             st.info("**Principal Investigator:**\n\n**Brian Bennett, Ph.D.**\n\nUSDA Western Human Nutrition Research Center  \nEmail: brian.bennett@usda.gov")
@@ -402,20 +381,17 @@ if check_password():
         else:
             st.markdown("Explore microbial community dynamics, Shannon diversity metrics, and Beta diversity PCoA plots across cohort waves.")
             
-            # Diversity metrics selection
             col_ctrl1, col_ctrl2 = st.columns(2)
             with col_ctrl1:
                 alpha_metric = st.selectbox("Alpha Diversity Metric", ["shannon", "faith_pd", "observed_otus"])
             with col_ctrl2:
                 beta_metric = st.selectbox("Beta Diversity Distance", ["Weighted UniFrac", "Unweighted UniFrac", "Bray-Curtis"])
                 
-            # Draw plots side by side
             plot_col1, plot_col2 = st.columns(2)
             
             with plot_col1:
                 st.subheader("Alpha Diversity Boxplot")
-                # Build alpha boxplot
-                if alpha_metric in metadata.columns:
+                if metadata is not None and alpha_metric in metadata.columns and "ngen" in metadata.columns:
                     fig_alpha = px.box(
                         metadata, 
                         x="ngen", 
@@ -428,11 +404,12 @@ if check_password():
                     fig_alpha.update_layout(showlegend=False, template="plotly_dark")
                     st.plotly_chart(fig_alpha, use_container_width=True)
                 else:
-                    # If metric not found, generate dummy values
+                    # Robust fallback boxplot
                     np.random.seed(123)
+                    dummy_ngen = metadata["ngen"] if (metadata is not None and "ngen" in metadata.columns) else np.random.choice(["Wave 1", "Wave 2"], 300)
                     dummy_df = pd.DataFrame({
-                        "ngen": metadata["ngen"],
-                        alpha_metric: np.random.normal(4.2, 0.5, len(metadata)) if alpha_metric == "shannon" else np.random.exponential(15, len(metadata))
+                        "ngen": dummy_ngen,
+                        alpha_metric: np.random.normal(4.2, 0.5, len(dummy_ngen)) if alpha_metric == "shannon" else np.random.exponential(15, len(dummy_ngen))
                     })
                     fig_alpha = px.box(
                         dummy_df, 
@@ -448,14 +425,16 @@ if check_password():
                     
             with plot_col2:
                 st.subheader("Beta Diversity PCoA Plot")
-                # Generate simulated PCoA coordinates
+                n_points = len(metadata) if metadata is not None else 300
+                dummy_ngen = metadata["ngen"] if (metadata is not None and "ngen" in metadata.columns) else np.random.choice(["Wave 1", "Wave 2"], n_points)
+                
                 np.random.seed(999)
                 pcoa_df = pd.DataFrame({
-                    "PCoA1": np.random.normal(0, 0.2, len(metadata)),
-                    "PCoA2": np.random.normal(0, 0.15, len(metadata)),
-                    "ngen": metadata["ngen"]
+                    "PCoA1": np.random.normal(0, 0.2, n_points),
+                    "PCoA2": np.random.normal(0, 0.15, n_points),
+                    "ngen": dummy_ngen
                 })
-                # Draw scatter plot
+                
                 fig_beta = px.scatter(
                     pcoa_df, 
                     x="PCoA1", 
@@ -465,7 +444,6 @@ if check_password():
                     title=f"Beta Diversity PCoA: {beta_metric}",
                     labels={"PCoA1": "PC1 (14.2% variance)", "PCoA2": "PC2 (9.8% variance)"}
                 )
-                # Add ellipses
                 fig_beta.update_layout(template="plotly_dark")
                 st.plotly_chart(fig_beta, use_container_width=True)
 
@@ -473,7 +451,6 @@ if check_password():
     # --- TAB 3: HERITABILITY ESTIMATES ---
     elif selected_tab == "Heritability Estimates":
         st.header("🧬 Broad-Sense Heritability (h²)")
-        
         st.markdown(f"Comparison of broad-sense heritability percentages across {omics_mode} traits.")
         
         h2_cohort = st.radio(
@@ -484,10 +461,9 @@ if check_password():
         
         active_h2_df = h2_data if h2_cohort == "DO-F1 Progeny" else h2_pro_data
         
-        if len(active_h2_df) > 0:
+        if active_h2_df is not None and not active_h2_df.empty and "Heritability" in active_h2_df.columns:
             active_h2_df = active_h2_df.dropna().sort_values(by="Heritability", ascending=True)
             
-            # Plot heritability
             fig_h2 = px.bar(
                 active_h2_df,
                 x="Heritability",
@@ -498,76 +474,78 @@ if check_password():
                 title=f"Heritability Estimates in {h2_cohort} (Sorted)",
                 labels={"Heritability": "Heritability (%)", "Trait": "Molecular Feature / Trait"}
             )
-            
             fig_h2.update_layout(
                 template="plotly_dark",
                 height=max(400, len(active_h2_df) * 20),
                 yaxis=dict(autorange="ascending", tickfont=dict(size=9, family="Courier"))
             )
-            
             st.plotly_chart(fig_h2, use_container_width=True)
         else:
-            st.info("No heritability data available for the active layer.")
+            st.info("No heritability data available to plot.")
 
 
     # --- TAB 4: LMM ASSOCIATIONS (TRAIT VS. FEATURE) ---
     elif selected_tab == "LMM Associations (Trait vs. Feature)":
         st.header("📈 Linear Mixed-Model Associations")
-        
         st.markdown(f"Exploration of associations between cardiometabolic traits and specific {omics_mode} features, controlling for genetics and experimental factors.")
         
-        # Input Selection Controls
+        # Defensive traits fetching
+        available_traits = ["lesionArea", "folChol"]
+        if lmm_data is not None and not lmm_data.empty and "Trait" in lmm_data.columns:
+            available_traits = sorted(list(lmm_data["Trait"].dropna().unique()))
+            
         col_ctrl1, col_ctrl2 = st.columns(2)
         with col_ctrl1:
-            # Standardize cardiometabolic traits
-            available_traits = sorted(lmm_data["Trait"].unique())
             selected_trait = st.selectbox(
                 "Select Cardiometabolic Phenotype:", 
                 available_traits,
                 format_func=lambda x: "Aortic Lesion Area" if x == "lesionArea" else "Plasma Total Cholesterol" if x == "folChol" else x
             )
         with col_ctrl2:
-            # Features matching selected trait
-            filtered_lmm = lmm_data[lmm_data["Trait"] == selected_trait]
-            features_for_trait = sorted(filtered_lmm[feature_col_name].unique())
+            features_for_trait = []
+            if lmm_data is not None and not lmm_data.empty and "Trait" in lmm_data.columns and feature_col_name in lmm_data.columns:
+                filtered_lmm = lmm_data[lmm_data["Trait"] == selected_trait]
+                features_for_trait = sorted([str(x) for x in filtered_lmm[feature_col_name].dropna().unique()])
+                
             selected_feature = st.selectbox(
                 f"Select {omics_mode} Feature:", 
-                features_for_trait if len(features_for_trait) > 0 else available_features
+                features_for_trait if features_for_trait else available_features
             )
             
         st.markdown("---")
         
-        # LMM Stats Table & Scatter Plot columns
         plot_col, table_col = st.columns([3, 2])
         
         with plot_col:
             st.subheader("LMM Scatter Plot (log-transformed values)")
             
-            # Build scatter plot with sex-split regression line
-            if selected_feature in metadata.columns and selected_trait in metadata.columns:
-                plot_df = metadata[[selected_feature, selected_trait, "Sex"]].dropna()
-                # transform
-                plot_df["log_feat"] = np.log1p(plot_df[selected_feature])
-                plot_df["log_trait"] = np.log1p(plot_df[selected_trait])
-                
-                fig_lmm = px.scatter(
-                    plot_df,
-                    x="log_feat",
-                    y="log_trait",
-                    color="Sex",
-                    color_discrete_map={"F": "#f43f5e", "M": "#3b82f6"},
-                    trendline="ols",
-                    title=f"{selected_feature} vs {selected_trait} (Sex-Split Linear Fitting)",
-                    labels={
-                        "log_feat": f"log({selected_feature} + 1)",
-                        "log_trait": f"log({selected_trait} + 1)"
-                    }
-                )
-                fig_lmm.update_layout(template="plotly_dark", legend_title_text="Sex")
-                st.plotly_chart(fig_lmm, use_container_width=True)
+            # Check if columns physically exist in metadata
+            if metadata is not None and selected_feature in metadata.columns and selected_trait in metadata.columns:
+                plot_df = metadata[[selected_feature, selected_trait, "Sex"]].dropna() if "Sex" in metadata.columns else metadata[[selected_feature, selected_trait]].dropna()
+                if not plot_df.empty:
+                    plot_df["log_feat"] = np.log1p(plot_df[selected_feature])
+                    plot_df["log_trait"] = np.log1p(plot_df[selected_trait])
+                    
+                    has_sex = "Sex" in plot_df.columns
+                    fig_lmm = px.scatter(
+                        plot_df,
+                        x="log_feat",
+                        y="log_trait",
+                        color="Sex" if has_sex else None,
+                        color_discrete_map={"F": "#f43f5e", "M": "#3b82f6"} if has_sex else None,
+                        trendline="ols" if HAS_STATSMODELS else None,
+                        title=f"{selected_feature} vs {selected_trait}",
+                        labels={
+                            "log_feat": f"log({selected_feature} + 1)",
+                            "log_trait": f"log({selected_trait} + 1)"
+                        }
+                    )
+                    fig_lmm.update_layout(template="plotly_dark")
+                    st.plotly_chart(fig_lmm, use_container_width=True)
+                else:
+                    st.info("No overlapping data points found in metadata for selected features.")
             else:
-                st.warning("Corresponding abundance metadata column not found. Showing simulated relation.")
-                # Build simulation relation
+                # Simulated regression fallback
                 np.random.seed(42)
                 n_samples = 300
                 sim_x = np.random.uniform(0, 5, n_samples)
@@ -583,8 +561,8 @@ if check_password():
                     y="log_trait",
                     color="Sex",
                     color_discrete_map={"F": "#f43f5e", "M": "#3b82f6"},
-                    trendline="ols",
-                    title="Simulated Correlation Plot",
+                    trendline="ols" if HAS_STATSMODELS else None,
+                    title="Simulated Correlation Plot (Fallback Mode)",
                     labels={"log_feat": f"log({selected_feature} + 1)", "log_trait": f"log({selected_trait} + 1)"}
                 )
                 fig_lmm.update_layout(template="plotly_dark")
@@ -593,32 +571,33 @@ if check_password():
         with table_col:
             st.subheader("Association Statistics Summary")
             
-            # Display Stats Table
-            lmm_record = lmm_data[
-                (lmm_data["Trait"] == selected_trait) & 
-                (lmm_data[feature_col_name] == selected_feature)
-            ]
+            lmm_record = pd.DataFrame()
+            if lmm_data is not None and not lmm_data.empty and "Trait" in lmm_data.columns and feature_col_name in lmm_data.columns:
+                lmm_record = lmm_data[
+                    (lmm_data["Trait"] == selected_trait) & 
+                    (lmm_data[feature_col_name] == selected_feature)
+                ]
             
-            if len(lmm_record) > 0:
+            if not lmm_record.empty:
                 stat_dict = {
                     "Metric": ["Fixed Effect Estimate", "95% CI Lower Bound", "95% CI Upper Bound", "LMM P-Value", "Marginal R²", "Broad Heritability (h²)"],
                     "Value": [
-                        lmm_record.iloc[0]["Estimate"],
-                        lmm_record.iloc[0]["CI_Low"],
-                        lmm_record.iloc[0]["CI_High"],
-                        f"{lmm_record.iloc[0]['P_value']:.4e}" if isinstance(lmm_record.iloc[0]['P_value'], float) else lmm_record.iloc[0]['P_value'],
+                        lmm_record.iloc[0]["Estimate"] if "Estimate" in lmm_record.columns else "N/A",
+                        lmm_record.iloc[0]["CI_Low"] if "CI_Low" in lmm_record.columns else "N/A",
+                        lmm_record.iloc[0]["CI_High"] if "CI_High" in lmm_record.columns else "N/A",
+                        f"{lmm_record.iloc[0]['P_value']:.4e}" if "P_value" in lmm_record.columns and isinstance(lmm_record.iloc[0]['P_value'], float) else lmm_record.iloc[0].get('P_value', 'N/A'),
                         lmm_record.iloc[0].get("R2_Marginal", "N/A"),
-                        f"{lmm_record.iloc[0].get('Heritability_h2', 0):.2f}%"
+                        f"{lmm_record.iloc[0].get('Heritability_h2', 0):.2f}%" if "Heritability_h2" in lmm_record.columns else "N/A"
                     ]
                 }
                 st.table(pd.DataFrame(stat_dict))
                 
-                # Draw a clean correlation metrics highlight
-                p_val = lmm_record.iloc[0]["P_value"]
-                if p_val < 0.05:
-                    st.success(f"✔️ Statistically Significant Correlation (p = {p_val})")
-                else:
-                    st.info(f"ℹ️ Correlation not significant (p = {p_val})")
+                if "P_value" in lmm_record.columns:
+                    p_val = lmm_record.iloc[0]["P_value"]
+                    if isinstance(p_val, (int, float)) and p_val < 0.05:
+                        st.success(f"✔️ Statistically Significant Correlation (p = {p_val})")
+                    else:
+                        st.info(f"ℹ️ Correlation not significant (p = {p_val})")
             else:
                 st.info("No statistics found for this feature-trait combination.")
 
@@ -626,10 +605,8 @@ if check_password():
     # --- TAB 5: QTL MAPPING & ALLELE EFFECTS ---
     elif selected_tab == "QTL Mapping & Allele Effects":
         st.header("🎯 Quantitative Trait Locus (QTL) Scans")
-        
         st.markdown(f"Genome-wide QTL mapping profiles showing chromosomal hotspots and founder strain coefficients for specific {omics_mode} markers.")
         
-        # Selection of feature & model
         col_ctrl1, col_ctrl2 = st.columns(2)
         with col_ctrl1:
             qtl_feature = st.selectbox("Select Target Feature:", available_features, key="qtl_feat_select")
@@ -638,21 +615,23 @@ if check_password():
             
         st.markdown("---")
         
-        # 1. Genome Scan Line Plot
         st.subheader("1. Genome-wide LOD Score Scan")
         
-        # Filter LOD scores for target feature
-        feature_lod = lod_data[lod_data["Feature"] == qtl_feature].copy()
+        feature_lod = pd.DataFrame()
+        if lod_data is not None and not lod_data.empty and "Feature" in lod_data.columns:
+            feature_lod = lod_data[lod_data["Feature"] == qtl_feature].copy()
         
-        if len(feature_lod) > 0:
-            # Standardize chromosome representations and sorting
-            feature_lod['Chr_Sort'] = feature_lod['Chr'].apply(lambda x: 99 if x == 'X' else int(x))
+        # Fallback peak values initialization
+        peak_chr = '4'
+        peak_pos = 50.0
+        peak_lod = 0.0
+        
+        if not feature_lod.empty and "LOD" in feature_lod.columns and "Chr" in feature_lod.columns:
+            feature_lod['Chr_Sort'] = feature_lod['Chr'].apply(lambda x: 99 if x == 'X' else (int(x) if str(x).isdigit() else 100))
             feature_lod = feature_lod.sort_values(by=['Chr_Sort', 'Position_cM'])
             
-            # Calculate cumulative chromosomal positions to place them continuously on X-axis
-            chroms = sorted(feature_lod['Chr'].unique(), key=lambda x: 99 if x == 'X' else int(x))
+            chroms = sorted(list(feature_lod['Chr'].unique()), key=lambda x: 99 if x == 'X' else (int(x) if str(x).isdigit() else 100))
             
-            # Define mock sizes for chromosome lengths (cM)
             chr_sizes = {
                 '1': 100, '2': 105, '3': 85, '4': 90, '5': 95, '6': 85, '7': 85, '8': 75, '9': 80,
                 '10': 75, '11': 90, '12': 70, '13': 70, '14': 65, '15': 65, '16': 60, '17': 65,
@@ -667,16 +646,15 @@ if check_password():
                 
             feature_lod["Global_Pos"] = feature_lod.apply(lambda r: r["Position_cM"] + offsets.get(r["Chr"], 0), axis=1)
             
-            # Find peak chromosome and position
-            peak_row = feature_lod.loc[feature_lod["LOD"].idxmax()]
-            peak_chr = peak_row["Chr"]
-            peak_pos = peak_row["Position_cM"]
-            peak_lod = peak_row["LOD"]
+            # Find peak safely
+            peak_idx = feature_lod["LOD"].idxmax()
+            if pd.notna(peak_idx):
+                peak_row = feature_lod.loc[peak_idx]
+                peak_chr = peak_row["Chr"]
+                peak_pos = peak_row["Position_cM"]
+                peak_lod = peak_row["LOD"]
             
-            # Draw LOD Line Plot using Plotly
             fig_scan = go.Figure()
-            
-            # Add primary LOD line
             fig_scan.add_trace(go.Scatter(
                 x=feature_lod["Global_Pos"],
                 y=feature_lod["LOD"],
@@ -687,7 +665,6 @@ if check_password():
                 hovertemplate="<b>%{text}</b><br>LOD: %{y:.3f}<extra></extra>"
             ))
             
-            # Add chromosome boundaries (vertical dotted lines) and annotations
             tick_vals = []
             tick_labels = []
             for ch in chroms:
@@ -695,11 +672,8 @@ if check_password():
                 size = chr_sizes.get(ch, 80)
                 tick_vals.append(offset + (size / 2))
                 tick_labels.append(ch)
-                
-                # Boundary line
                 fig_scan.add_vline(x=offset + size, line_width=1, line_dash="dash", line_color="#475569")
                 
-            # Significance threshold line (LOD = 7.25)
             fig_scan.add_hline(y=7.25, line_width=1.5, line_dash="dot", line_color="#ef4444", annotation_text="Significance Threshold (7.25)", annotation_position="top left")
             
             fig_scan.update_layout(
@@ -715,28 +689,23 @@ if check_password():
                 yaxis=dict(title="LOD Score"),
                 margin=dict(l=40, r=40, t=30, b=40)
             )
-            
             st.plotly_chart(fig_scan, use_container_width=True)
             st.info(f"📍 Peak LOD = **{peak_lod:.3f}** identified on **Chromosome {peak_chr}** (position: {peak_pos:.2f} cM).")
-            
         else:
-            st.warning("LOD mapping dataset contains no records for this feature.")
-            peak_chr = '4'  # default fallback for demo allele drawing
+            st.info("No scan data available for this feature.")
             
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        # 2. Allele Coefficients (BLUP)
         st.subheader(f"2. Founder Allele Coefficients (BLUP) across Peak Chromosome {peak_chr}")
-        st.caption("Shows how the genetic heritage from the 8 founder strains influences the trait abundance at the locus.")
         
-        # Filter coefficients for target feature & peak chromosome
-        feature_coef = coef_data[
-            (coef_data["Feature"] == qtl_feature) & 
-            (coef_data["Chr"] == peak_chr)
-        ].copy().sort_values(by="Position_cM")
-        
-        if len(feature_coef) > 0:
-            # Define exact founder name map & official colors mapping from qtl2
+        feature_coef = pd.DataFrame()
+        if coef_data is not None and not coef_data.empty and "Feature" in coef_data.columns and "Chr" in coef_data.columns:
+            feature_coef = coef_data[
+                (coef_data["Feature"] == qtl_feature) & 
+                (coef_data["Chr"] == peak_chr)
+            ].copy()
+            
+        if not feature_coef.empty and "Position_cM" in feature_coef.columns:
+            feature_coef = feature_coef.sort_values(by="Position_cM")
             founders = {
                 'Allele_A': ('A/J (A)', '#f43f5e'),
                 'Allele_B': ('C57BL/6J (B)', '#64748b'),
@@ -749,7 +718,6 @@ if check_password():
             }
             
             fig_coef = go.Figure()
-            
             for key, (label, color) in founders.items():
                 if key in feature_coef.columns:
                     fig_coef.add_trace(go.Scatter(
@@ -760,7 +728,6 @@ if check_password():
                         name=label,
                         hovertemplate=f"<b>{label}</b><br>cM: %{{x}}<br>BLUP Effect: %{{y:.4f}}<extra></extra>"
                     ))
-                    
             fig_coef.update_layout(
                 template="plotly_dark",
                 height=380,
@@ -775,7 +742,6 @@ if check_password():
                     x=1
                 )
             )
-            
             st.plotly_chart(fig_coef, use_container_width=True)
         else:
-            st.info("No allele coefficients found matching the peak chromosome. Try selecting another feature.")
+            st.info("No allele coefficients data available for this peak chromosome.")
