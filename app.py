@@ -520,7 +520,7 @@ elif selected_tab == "Heritability Estimates":
         fig_h2.update_layout(
             template="plotly_dark",
             height=max(400, len(active_h2_df) * 20),
-            yaxis=dict(autorange="ascending", tickfont=dict(size=9, family="Courier"))
+            yaxis=dict(autorange="reversed", tickfont=dict(size=9, family="Courier"))
         )
         st.plotly_chart(fig_h2, use_container_width=True)
     else:
