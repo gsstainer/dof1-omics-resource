@@ -6,5 +6,8 @@ __pycache__/
 renv/
 *.rds
 *.RData
-# Exclude actual raw directories but allow requirements and python scripts
-DOF1_Microbe/
+# Exclude heavy rds and RData files from data folders, but ALLOW tracking CSV files
+**/data/*.rds
+**/data/*.RData
+**/data/*.Rdata
+**/data/*.RDATA
