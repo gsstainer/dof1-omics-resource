@@ -216,10 +216,26 @@ def load_app_data(omics_mode):
         for f in features:
             metadata[f] = np.random.lognormal(1.5, 1.2, n_samples)
             
-    # Get active features list from metadata
-    features = [col for col in metadata.columns if col.startswith("Genus_" if is_microbe else "Metabolite_")]
+    # Get active features list from metadata (Microbes start with 'g_' in metadata.csv)
+    if is_microbe:
+        features = [col for col in metadata.columns if col.startswith("g_")]
+    else:
+        features = [col for col in metadata.columns if col.startswith("m_") or col.startswith("Metabolite_")]
+        
     if not features:
-        features = [f"Genus_{i}" if is_microbe else f"Metabolite_{i}" for i in range(1, 21)]
+        if is_microbe:
+            features = [
+                "g_Bifidobacterium", "g_Alistipes", "g_Lactobacillus", "g_Blautia", 
+                "g_Lachnospiraceae", "g_Ruminococcus", "g_Akkermansia", "g_Bacteroides", 
+                "g_Faecalibacterium", "g_Coprococcus", "g_Roseburia", "g_Oscillibacter"
+            ]
+        else:
+            features = [
+                "m_Alanine", "m_Choline", "m_Glutamate", "m_Lactate", "m_Glucose", 
+                "m_Glycine", "m_Leucine", "m_Valine", "m_Isoleucine", "m_Creatinine",
+                "m_Acetoacetate", "m_Succinate", "m_Acetate", "m_Butyrate", "m_Propionate",
+                "m_Taurine", "m_Betaine", "m_Carnitine", "m_Trimethylamine", "m_TMAO"
+            ]
         for f in features:
             metadata[f] = np.random.lognormal(1.5, 1.2, len(metadata))
 
@@ -228,7 +244,7 @@ def load_app_data(omics_mode):
     feature_col_name = "Microbial_Feature" if is_microbe else "Metabolite_Feature"
     
     if lmm_data is None or lmm_data.empty or feature_col_name not in lmm_data.columns:
-        traits = ["lesionArea", "folChol"]
+        traits = ["lesionArea", "folChol", "liverTC", "folGLC", "folTG"]
         rows = []
         np.random.seed(42)
         for trait in traits:
@@ -516,16 +532,23 @@ elif selected_tab == "LMM Associations (Trait vs. Feature)":
     st.header("📈 Linear Mixed-Model Associations")
     st.markdown(f"Exploration of associations between cardiometabolic traits and specific {omics_mode} features, controlling for genetics and experimental factors.")
     
-    available_traits = ["lesionArea", "folChol"]
+    available_traits = ["lesionArea", "folChol", "liverTC", "folGLC", "folTG"]
     if lmm_data is not None and not lmm_data.empty and "Trait" in lmm_data.columns:
         available_traits = sorted(list(lmm_data["Trait"].dropna().unique()))
         
     col_ctrl1, col_ctrl2 = st.columns(2)
     with col_ctrl1:
+        trait_names = {
+            "lesionArea": "Aortic Lesion Area (lesionArea)",
+            "folChol": "Plasma Total Cholesterol (folChol)",
+            "liverTC": "Liver Total Cholesterol (liverTC)",
+            "folGLC": "Plasma Glucose (folGLC)",
+            "folTG": "Plasma Triglyceride (folTG)"
+        }
         selected_trait = st.selectbox(
             "Select Cardiometabolic Phenotype:", 
             available_traits,
-            format_func=lambda x: "Aortic Lesion Area" if x == "lesionArea" else "Plasma Total Cholesterol" if x == "folChol" else x
+            format_func=lambda x: trait_names.get(x, x)
         )
     with col_ctrl2:
         features_for_trait = []
