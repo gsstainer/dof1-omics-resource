@@ -386,8 +386,21 @@ if selected_tab == "About & Overview":
     
     Currently exploring **{omics_mode}** data. You can switch between Microbiome and Metabolomics profiles using the sidebar toggle.
     
+    ### 📊 Actual Study Data & QTL Analysis Summary
+    We performed a comprehensive systems genetics profiling of the DO-F1 cohort:
+    * **Mouse Cohort Statistics (metadata.csv)**:
+      * **Total Mice Profiling**: **459** (out of 461 total rows, excluding header and empty cases)
+      * **Female Cohort (F)**: **230** mice
+      * **Male Cohort (M)**: **229** mice
+    * **Quantitative Trait Locus (QTL) RDS Scanning**:
+      * Dynamic genome-wide scans were pre-calculated using the `qtl2` package (LOD threshold **>= 7.25**):
+        * **Female-Only Model**: **56** significant features
+        * **Male-Only Model**: **57** significant features
+        * **Additive (Combined) Model**: **121** significant features
+        * **Total Unique Genus QTL Hotspots**: **130** significant features
+    
     ### 🔬 Study Details & Accessibility
-    * **Key Phenotypes**: Atherosclerosis Lesion Area (Aortic Lesion Area), Plasma Total Cholesterol, etc.
+    * **Key Phenotypes**: Atherosclerosis Lesion Area (Aortic Lesion Area), Plasma Total Cholesterol, Liver Total Cholesterol, Plasma Glucose, Plasma Triglyceride.
     * **Systems Genetics**: Integration of linear mixed-model associations (LMM), broad-sense heritability estimation, and high-resolution QTL mapping using `qtl2`.
     * **Raw Data Access**: Raw metagenomic/metabolomic sequences are hosted at NCBl BioProject/SRA under ID **PRJNA686143**.
     """)
