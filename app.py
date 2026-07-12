@@ -390,45 +390,58 @@ elif selected_tab == "Cohort Analysis (Microbiome Only)":
     if omics_mode != "Microbiome":
         st.warning("⚠️ Diversity analysis and UniFrac projections are specific to taxonomic sequencing (Microbiome data). Please switch the Omics Mode in the sidebar to 'Microbiome' to view this analysis.")
     else:
-        st.markdown("Explore microbial community dynamics, Shannon diversity metrics, and Beta diversity PCoA plots across cohort waves.")
+        st.markdown("Explore microbial community dynamics, Shannon diversity metrics, and Beta diversity PCoA plots across cohort groups (ngen/sex).")
         
-        col_ctrl1, col_ctrl2 = st.columns(2)
+        col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
         with col_ctrl1:
             alpha_metric = st.selectbox("Alpha Diversity Metric", ["shannon", "faith_pd", "observed_otus"])
         with col_ctrl2:
             beta_metric = st.selectbox("Beta Diversity Distance", ["Weighted UniFrac", "Unweighted UniFrac", "Bray-Curtis"])
+        with col_ctrl3:
+            compare_by = st.selectbox("Compare Group By:", ["Cohort (ngen)", "Sex"])
             
+        compare_col = "ngen" if compare_by == "Cohort (ngen)" else "Sex"
+        color_map = (
+            {"Wave 1": "#38bdf8", "Wave 2": "#818cf8"} 
+            if compare_col == "ngen" 
+            else {"Female": "#f43f5e", "Male": "#3b82f6", "F": "#f43f5e", "M": "#3b82f6"}
+        )
+        
         plot_col1, plot_col2 = st.columns(2)
         
         with plot_col1:
             st.subheader("Alpha Diversity Boxplot")
-            if metadata is not None and alpha_metric in metadata.columns and "ngen" in metadata.columns:
+            if metadata is not None and alpha_metric in metadata.columns and compare_col in metadata.columns:
                 fig_alpha = px.box(
                     metadata, 
-                    x="ngen", 
+                    x=compare_col, 
                     y=alpha_metric, 
-                    color="ngen",
-                    color_discrete_map={"Wave 1": "#38bdf8", "Wave 2": "#818cf8"},
+                    color=compare_col,
+                    color_discrete_map=color_map,
                     points="all",
-                    title=f"Alpha Diversity: {alpha_metric.capitalize()}"
+                    title=f"Alpha Diversity: {alpha_metric.capitalize()} by {compare_by}"
                 )
                 fig_alpha.update_layout(showlegend=False, template="plotly_dark")
                 st.plotly_chart(fig_alpha, use_container_width=True)
             else:
                 np.random.seed(123)
-                dummy_ngen = metadata["ngen"] if (metadata is not None and "ngen" in metadata.columns) else np.random.choice(["Wave 1", "Wave 2"], 300)
+                dummy_group = (
+                    metadata[compare_col] 
+                    if (metadata is not None and compare_col in metadata.columns) 
+                    else np.random.choice(["Wave 1", "Wave 2"] if compare_col == "ngen" else ["Female", "Male"], 300)
+                )
                 dummy_df = pd.DataFrame({
-                    "ngen": dummy_ngen,
-                    alpha_metric: np.random.normal(4.2, 0.5, len(dummy_ngen)) if alpha_metric == "shannon" else np.random.exponential(15, len(dummy_ngen))
+                    compare_col: dummy_group,
+                    alpha_metric: np.random.normal(4.2, 0.5, len(dummy_group)) if alpha_metric == "shannon" else np.random.exponential(15, len(dummy_group))
                 })
                 fig_alpha = px.box(
                     dummy_df, 
-                    x="ngen", 
+                    x=compare_col, 
                     y=alpha_metric, 
-                    color="ngen", 
-                    color_discrete_map={"Wave 1": "#38bdf8", "Wave 2": "#818cf8"},
+                    color=compare_col, 
+                    color_discrete_map=color_map,
                     points="all",
-                    title=f"Alpha Diversity: {alpha_metric.capitalize()}"
+                    title=f"Alpha Diversity: {alpha_metric.capitalize()} by {compare_by}"
                 )
                 fig_alpha.update_layout(showlegend=False, template="plotly_dark")
                 st.plotly_chart(fig_alpha, use_container_width=True)
@@ -436,22 +449,26 @@ elif selected_tab == "Cohort Analysis (Microbiome Only)":
         with plot_col2:
             st.subheader("Beta Diversity PCoA Plot")
             n_points = len(metadata) if metadata is not None else 300
-            dummy_ngen = metadata["ngen"] if (metadata is not None and "ngen" in metadata.columns) else np.random.choice(["Wave 1", "Wave 2"], n_points)
+            dummy_group = (
+                metadata[compare_col] 
+                if (metadata is not None and compare_col in metadata.columns) 
+                else np.random.choice(["Wave 1", "Wave 2"] if compare_col == "ngen" else ["Female", "Male"], n_points)
+            )
             
             np.random.seed(999)
             pcoa_df = pd.DataFrame({
                 "PCoA1": np.random.normal(0, 0.2, n_points),
                 "PCoA2": np.random.normal(0, 0.15, n_points),
-                "ngen": dummy_ngen
+                compare_col: dummy_group
             })
             
             fig_beta = px.scatter(
                 pcoa_df, 
                 x="PCoA1", 
                 y="PCoA2", 
-                color="ngen", 
-                color_discrete_map={"Wave 1": "#38bdf8", "Wave 2": "#818cf8"},
-                title=f"Beta Diversity PCoA: {beta_metric}",
+                color=compare_col, 
+                color_discrete_map=color_map,
+                title=f"Beta Diversity PCoA: {beta_metric} by {compare_by}",
                 labels={"PCoA1": "PC1 (14.2% variance)", "PCoA2": "PC2 (9.8% variance)"}
             )
             fig_beta.update_layout(template="plotly_dark")
