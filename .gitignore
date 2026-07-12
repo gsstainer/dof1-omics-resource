@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.Rhistory
+.RData
+.Rproj.user/
+renv/
+*.rds
+*.RData
+# Exclude actual raw directories but allow requirements and python scripts
+DOF1_Microbe/
