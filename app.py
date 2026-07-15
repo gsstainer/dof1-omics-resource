@@ -135,63 +135,6 @@ def find_data_file(filename):
 
 
 @st.cache_data
-def generate_mock_lod_scores(features):
-    chroms = [str(i) for i in range(1, 20)] + ['X']
-    data = []
-    np.random.seed(42)
-    for feat in features:
-        for ch in chroms:
-            length = 120 if ch != 'X' else 80
-            positions = np.sort(np.random.uniform(0, length, 15))
-            peak_chr = '4' if hash(feat) % 3 == 0 else '11'
-            for pos in positions:
-                base_lod = np.random.exponential(1.2)
-                if ch == peak_chr and abs(pos - (length / 2)) < 15:
-                    lod = base_lod + np.random.uniform(5.0, 9.5)
-                else:
-                    lod = base_lod
-                data.append({
-                    "Chr": ch,
-                    "Position_cM": round(pos, 3),
-                    "Feature": feat,
-                    "LOD": round(lod, 3)
-                })
-    return pd.DataFrame(data)
-
-
-@st.cache_data
-def generate_mock_allele_effects(features):
-    chroms = [str(i) for i in range(1, 20)] + ['X']
-    founders = ['Allele_A', 'Allele_B', 'Allele_C', 'Allele_D', 'Allele_E', 'Allele_F', 'Allele_G', 'Allele_H']
-    data = []
-    np.random.seed(100)
-    for feat in features:
-        ch = '4' if hash(feat) % 3 == 0 else '11'
-        length = 120 if ch != 'X' else 80
-        positions = np.sort(np.random.uniform(0, length, 40))
-        for pos in positions:
-            row = {"Chr": ch, "Position_cM": round(pos, 3), "Feature": feat}
-            effects = np.random.normal(0, 0.2, len(founders))
-            if abs(pos - (length / 2)) < 15:
-                effects[0] += np.random.uniform(0.5, 1.2)
-                effects[1] -= np.random.uniform(0.5, 1.2)
-            effects = effects - np.mean(effects)
-            for idx, f in enumerate(founders):
-                row[f] = round(effects[idx], 4)
-            data.append(row)
-    return pd.DataFrame(data)
-
-
-def safe_read_csv(filepath):
-    if not filepath or not os.path.exists(filepath):
-        return None
-    try:
-        return pd.read_csv(filepath)
-    except Exception as e:
-        return None
-
-
-@st.cache_data
 def load_app_data(omics_mode):
     is_microbe = (omics_mode == "Microbiome")
     
@@ -203,19 +146,9 @@ def load_app_data(omics_mode):
     # 1. Load Metadata
     metadata = safe_read_csv(meta_path)
     if metadata is None or metadata.empty:
-        np.random.seed(42)
-        n_samples = 350
-        metadata = pd.DataFrame({
-            "SampleID": [f"Sample_{i}" for i in range(n_samples)],
-            "Sex": np.random.choice(["F", "M"], n_samples),
-            "ngen": np.random.choice(["Wave 1", "Wave 2"], n_samples),
-            "lesionArea": np.random.lognormal(2.5, 0.8, n_samples),
-            "folChol": np.random.normal(120, 25, n_samples)
-        })
-        features = [f"Genus_{i}" if is_microbe else f"Metabolite_{i}" for i in range(1, 21)]
-        for f in features:
-            metadata[f] = np.random.lognormal(1.5, 1.2, n_samples)
-            
+        st.error("❌ Critical Error: 'metadata.csv' could not be found or loaded. Please ensure the study metadata file is uploaded to the data directory.")
+        st.stop()
+        
     # Get active features list from metadata (Microbes start with 'g_' in metadata.csv)
     if is_microbe:
         features = [col for col in metadata.columns if col.startswith("g_")]
@@ -223,60 +156,23 @@ def load_app_data(omics_mode):
         features = [col for col in metadata.columns if col.startswith("m_") or col.startswith("Metabolite_")]
         
     if not features:
-        if is_microbe:
-            features = [
-                "g_Bifidobacterium", "g_Alistipes", "g_Lactobacillus", "g_Blautia", 
-                "g_Lachnospiraceae", "g_Ruminococcus", "g_Akkermansia", "g_Bacteroides", 
-                "g_Faecalibacterium", "g_Coprococcus", "g_Roseburia", "g_Oscillibacter"
-            ]
-        else:
-            features = [
-                "m_Alanine", "m_Choline", "m_Glutamate", "m_Lactate", "m_Glucose", 
-                "m_Glycine", "m_Leucine", "m_Valine", "m_Isoleucine", "m_Creatinine",
-                "m_Acetoacetate", "m_Succinate", "m_Acetate", "m_Butyrate", "m_Propionate",
-                "m_Taurine", "m_Betaine", "m_Carnitine", "m_Trimethylamine", "m_TMAO"
-            ]
-        for f in features:
-            metadata[f] = np.random.lognormal(1.5, 1.2, len(metadata))
+        st.error(f"❌ Critical Error: No valid features starting with {'g_' if is_microbe else 'm_'} found in metadata.csv columns.")
+        st.stop()
 
     # 2. Load LMM
     lmm_data = safe_read_csv(lmm_path)
     feature_col_name = "Microbial_Feature" if is_microbe else "Metabolite_Feature"
     
     if lmm_data is None or lmm_data.empty or feature_col_name not in lmm_data.columns:
-        traits = ["lesionArea", "folChol", "liverTC", "folGLC", "folTG"]
-        rows = []
-        np.random.seed(42)
-        for trait in traits:
-            for feat in features:
-                est = np.random.uniform(-0.4, 0.4)
-                pval = np.random.uniform(0.0001, 0.8)
-                rows.append({
-                    "Trait": trait,
-                    feature_col_name: feat,
-                    "Estimate": round(est, 4),
-                    "CI_Low": round(est - 0.15, 4),
-                    "CI_High": round(est + 0.15, 4),
-                    "P_value": round(pval, 6),
-                    "R2_Marginal": round(np.random.uniform(0.01, 0.15), 4),
-                    "Heritability_h2": round(np.random.uniform(5, 45), 2)
-                })
-        lmm_data = pd.DataFrame(rows)
+        st.error(f"❌ Critical Error: Linear Mixed-Model results CSV ('{os.path.basename(lmm_path) if lmm_path else 'LMM_Results.csv'}') could not be found or loaded.")
+        st.stop()
 
     # 3. Load Heritability
     h2_data = safe_read_csv(h2_path)
-    if h2_data is None or h2_data.empty:
-        h2_data = pd.DataFrame({
-            "Trait": features,
-            "Heritability": np.sort(np.random.uniform(5, 55, len(features)))
-        })
-        
     h2_pro_data = safe_read_csv(h2_pro_path)
-    if h2_pro_data is None or h2_pro_data.empty:
-        h2_pro_data = pd.DataFrame({
-            "Trait": features,
-            "Heritability": np.sort(np.random.uniform(2, 40, len(features)))
-        })
+    if h2_data is None or h2_data.empty or h2_pro_data is None or h2_pro_data.empty:
+        st.error("❌ Critical Error: Broad-sense heritability CSV files (h2_DOF1.csv, h2_DOProF1.csv) could not be found or loaded.")
+        st.stop()
 
     # Standardize column headers to prevent IndexErrors
     for df in [h2_data, h2_pro_data]:
@@ -286,17 +182,17 @@ def load_app_data(omics_mode):
     # 4. Load QTL LOD scores & Allele Effects
     lod_path = find_data_file("qtl_lod_scores.csv")
     lod_data = safe_read_csv(lod_path)
-    if lod_data is not None and not lod_data.empty and "Feature" in lod_data.columns:
-        lod_data = lod_data[lod_data["Feature"].isin(features)]
-    else:
-        lod_data = generate_mock_lod_scores(features)
+    if lod_data is None or lod_data.empty or "Feature" not in lod_data.columns:
+        st.error("❌ Critical Error: Pre-calculated QTL LOD scores file ('qtl_lod_scores.csv') is missing, unreadable, or empty.")
+        st.stop()
+    lod_data = lod_data[lod_data["Feature"].isin(features)]
         
     coef_path = find_data_file("qtl_allele_effects.csv")
     coef_data = safe_read_csv(coef_path)
-    if coef_data is not None and not coef_data.empty and "Feature" in coef_data.columns:
-        coef_data = coef_data[coef_data["Feature"].isin(features)]
-    else:
-        coef_data = generate_mock_allele_effects(features)
+    if coef_data is None or coef_data.empty or "Feature" not in coef_data.columns:
+        st.error("❌ Critical Error: Founder allele coefficients file ('qtl_allele_effects.csv') is missing, unreadable, or empty.")
+        st.stop()
+    coef_data = coef_data[coef_data["Feature"].isin(features)]
 
     return metadata, lmm_data, h2_data, h2_pro_data, lod_data, coef_data
 
@@ -605,26 +501,7 @@ elif selected_tab == "LMM Associations (Trait vs. Feature)":
             else:
                 st.info("No overlapping data points found in metadata for selected features.")
         else:
-            np.random.seed(42)
-            n_samples = 300
-            sim_x = np.random.uniform(0, 5, n_samples)
-            sim_y = 2.5 + 0.35 * sim_x + np.random.normal(0, 0.8, n_samples)
-            sim_df = pd.DataFrame({
-                "log_feat": sim_x,
-                "log_trait": sim_y,
-                "Sex": np.random.choice(["F", "M"], n_samples)
-            })
-            fig_lmm = px.scatter(
-                sim_df,
-                x="log_feat",
-                y="log_trait",
-                color="Sex",
-                color_discrete_map={"Female": "#f43f5e", "Male": "#3b82f6", "F": "#f43f5e", "M": "#3b82f6"},
-                title="Simulated Correlation Plot (Fallback Mode)",
-                labels={"log_feat": f"log({selected_feature} + 1)", "log_trait": f"log({selected_trait} + 1)"}
-            )
-            fig_lmm.update_layout(template="plotly_dark")
-            st.plotly_chart(fig_lmm, use_container_width=True)
+            st.warning("⚠️ The selected molecular feature or trait column does not exist in metadata.csv.")
             
     with table_col:
         st.subheader("Association Statistics Summary")
